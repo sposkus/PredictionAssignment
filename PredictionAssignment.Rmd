@@ -1,0 +1,126 @@
+---
+title: "Human Activity Recognition Prediction Assignment"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE)
+library(dplyr)
+library(caret)
+library(rpart)
+library(randomForest)
+```
+## by Shannon Poskus
+### February 5, 2021
+
+### Introduction
+
+This analysis is looking at Human Activity Recognition data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants while they did barbell lifts.  The participents did the barbell lift in 5 different ways, some correct and some incorrect ways of doing the exercise.  The goal of this report is to show how to predict which method a person is using based on their accelerometer data.
+
+First retrieve the data and format it to allow analysis.  Multiple columns of the data contain either "NA" values or were left empty, be sure to remove those columns as they can't be used as predictors with missing or non-existent data. Also remove the columns that are not from accelerometer data in order to prevent them from forming false associations.
+
+```{r}
+# load data
+file_training <- file("pml-training.csv")
+file_testing <- file("pml-testing.csv")
+
+training_data <- read.csv(file_training, header = TRUE, na.strings = c("", "NA"))
+testing_data <- read.csv(file_testing, header = TRUE, na.strings = c("", "NA"))
+
+# clean data
+training <- training_data %>% select_if(~ !any(is.na(.)))
+testing <- testing_data %>% select_if(~ !any(is.na(.)))
+
+# remove front columns
+training <- training[, -c(1:7)]
+testing <- testing[, -c(1:7)]
+```
+
+### Building the Model
+
+Next split the training set into two data sets, the base training set and a validation set, and use the base training set to create the first model using Recusive Partitioning Trees. 
+
+```{r}
+# set seed for reproducibility
+set.seed(37429)
+
+# split the data 75% to 25%
+dataSplit <- createDataPartition(training$classe, p=0.75, list = FALSE)
+baseTraining <- training[dataSplit,]
+validTraining <- training[-dataSplit,]
+
+# create the first model using rpart
+model1 <- rpart(classe ~ ., data = baseTraining, method = "class")
+
+# look at the cost complexity parameter for the first model
+printcp(model1)
+
+# plot the relative error for the first model
+plotcp(model1)
+
+# use the predict function on the first model with the validation data set
+predict1 <- predict(model1, validTraining, type = "class")
+
+# use the Confusion Matrix to look at the prediction odds for model 1
+conMat1 <- confusionMatrix(predict1, validTraining$classe)
+conMat1
+```
+
+Using Recusive Partitioning Trees the accuracy appears to be just over 72%, which is not that great a percentage, but the recusive partitioning tree model is prone to bias so it's not entirely unexpected that there was over-fitting to the base training data.
+
+### Cross Validation
+
+Next try using k-fold cross validation with the k set to 8.
+
+```{r}
+# set up the cross fold with k=8
+control <- trainControl(method = "cv", number = 8)
+
+# create the second model using the base training data
+model2 <- train(classe ~., data = baseTraining, method = "rpart", trControl = control)
+
+# use the predict function on the second model with the validation data set
+predict2 <- predict(model2, validTraining)
+
+# use the Confusion Matrix to look at the prediction odds for model 2
+conMat2 <- confusionMatrix(validTraining$classe, predict2)
+conMat2
+
+# plot the accuracy of the second model
+plot(model2)
+```
+
+The second model has even less accuracy than the first, with an accuracy of only 53.73%.
+
+Finally, try creating a model using the Random Forest method on the base training data.
+
+```{r}
+# create the third model using the base training data
+model3 <- randomForest(classe ~., data = baseTraining)
+
+# use the predict function on the third model with the validation data set
+predict3 <- predict(model3, validTraining, type = "class")
+
+# use the Confusion Matrix to look at the prediction odds for model 3
+conMat3 <- confusionMatrix(predict3, validTraining$classe)
+conMat3
+
+# plot the error for the different trees
+plot(model3)
+```
+
+The Random Forest method produces a much more accurate model, with an accuracy of 99.47%, so that is the model to use going forward with the actual test data.
+
+### Testing the model
+
+Apply the third model to the test data and check what the resulting predicted barbell lifting methods are.
+
+```{r}
+# use the testing data with the third model
+predict_final <- predict(model3, testing, type = "class")
+predict_final
+```
+
+### Final Notes 
+
+The data for this project comes from this source: http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har
